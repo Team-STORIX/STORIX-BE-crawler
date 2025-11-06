@@ -261,11 +261,11 @@ def main():
 
         for i, url in enumerate(urls_to_scrape):
             print(f"\n({i+1}/{len(urls_to_scrape)}) 스크래핑 중: {url}")
-            data = scrape_webtoon_details(driver, url)
+            data = crawl_webtoon_details(driver, url)
             
             if data:
                 print(f"  > [스크래핑 성공] {data['works_name']} ({data['artist_name']})")
-                if insert_work_to_db(connection, cursor, data):
+                if save_to_database(connection, cursor, data):
                     all_scraped_data_count += 1
             
             time.sleep(random.uniform(1.2, 2.5))

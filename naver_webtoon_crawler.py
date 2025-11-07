@@ -492,42 +492,20 @@ def main():
             raise Exception("❌ 네이버 로그인 실패")
         
 
-        # 장르별 URL 수집
-        all_unique_urls = set()
-        print("\n" + "---" * 10 + "\n[1] 전체 URL 수집 시작\n" + "---" * 10)
+        total_saved = 0
 
+        print("\n" + "---"*10 + "\n[1] 장르별 수집/저장 시작\n" + "---"*10)
         for genre in GENRES:
-            current_list_url = BASE_URL + genre
-            print(f"\n--- [ {genre} ] 장르 페이지 URL 수집 중... ---")
-            genre_urls = get_webtoon_urls(driver, current_list_url)
-            all_unique_urls.update(genre_urls)
-            print(f"[ {genre} ] 완료. (현재 총 {len(all_unique_urls)}개 고유 URL)")
-            time.sleep(random.uniform(1.0, 2.0)) 
+            list_url = BASE_URL + genre
+            saved = crawl_one_genre(driver, connection, cursor, list_url, restart_every=200)
+            total_saved += saved
+            print(f"✔️ {genre} 장르 저장 완료 (누적 {total_saved})")
+            time.sleep(random.uniform(1.0, 2.0))
 
-        urls_to_scrape = list(all_unique_urls)
+        print("\n" + "---"*10 + "\n[3] 전체 크롤링 완료!\n" + "---"*10)
+        print(f"✅ 총 {total_saved}개의 작품을 저장했습니다.")
 
-        if not urls_to_scrape:
-            raise Exception("수집할 URL이 없습니다.")
-            
-        # 장르 URL 순회해 세부 정보 크롤링 및 DB 저장
-        print("\n" + "---" * 10 + f"\n[2] 총 {len(urls_to_scrape)}개 세부 정보 스크래핑 및 DB 저장 시작\n" + "---" * 10)
-
-        all_scraped_data_count = 0
-
-        for i, url in enumerate(urls_to_scrape):
-            print(f"\n({i+1}/{len(urls_to_scrape)}) 스크래핑 중: {url}")
-            data = crawl_webtoon_details(driver, url)
-            
-            if data:
-                print(f"  > [스크래핑 성공] {data['works_name']} ({data['artist_name']})")
-                if save_to_database(connection, cursor, data):
-                    all_scraped_data_count += 1
-            
-            time.sleep(random.uniform(1.2, 2.5))
-
-        print("\n" + "---" * 10 + "\n[3] 전체 크롤링 완료!\n" + "---" * 10)
-        print(f"✅ 총 {all_scraped_data_count}개의 작품 데이터를 DB에 성공적으로 저장했습니다.")
-
+        
     except Exception as e:
         print(f"❌ 메인 로직 실행 중 오류 발생: {e}")
 

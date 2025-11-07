@@ -355,6 +355,28 @@ def connect_database(config):
         print(f"❌ 데이터베이스 연결 실패: {e}")
         return None
 
+# 실패 시 백업 로직
+def ensure_failed_csv_header():
+    
+    if not FAILED_CSV.exists():
+        with open(FAILED_CSV, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow([
+                "platform","works_name","artist_name","age_classification",
+                "description","genre","thumbnail_url","type","source_url","error"
+            ])
+
+def backup_row(row, err_msg):
+    
+    ensure_failed_csv_header()
+    with open(FAILED_CSV, "a", newline="", encoding="utf-8") as f:
+       
+        csv.writer(f).writerow([
+            row.get("platform"), row.get("works_name"), row.get("artist_name"),
+            row.get("age_classification"), row.get("description"),
+            row.get("genre"), row.get("thumbnail_url"), row.get("type"),
+            row.get("source_url"), err_msg
+        ])
+
 # 데이터베이스에 데이터 저장
 def save_to_database(connection, cursor, data):
 
@@ -387,6 +409,7 @@ def save_to_database(connection, cursor, data):
             data['thumbnail_url'], data['type']
         )
         
+        
         cursor.execute(insert_query, insert_values)
         connection.commit()
 
@@ -403,6 +426,7 @@ def save_to_database(connection, cursor, data):
         else:
             print(f"❌ [DB 오류] {data['works_name']} 저장 실패: {e}")
 
+        backup_row({**data, "genre": db_genre, "age_classification": db_age_classification}, str(e))
         connection.rollback()
         return False
     

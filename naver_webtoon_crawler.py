@@ -8,8 +8,11 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ( TimeoutException, NoSuchElementException )
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import (
+    TimeoutException, NoSuchElementException, StaleElementReferenceException,
+    InvalidSessionIdException, WebDriverException
+)
+
 
 # MySQL connector
 import mysql.connector
@@ -17,7 +20,10 @@ from mysql.connector import Error as MySQLError
 
 # Others
 import time
+import csv
+import json
 import random
+import pathlib
 import getpass
 import os
 from dotenv import load_dotenv
@@ -29,18 +35,39 @@ load_dotenv()
 BASE_URL = 'https://comic.naver.com/webtoon?tab=genre&genre='
 GENRES = ["PURE", "FANTASY", "DAILY", "로판", "HISTORICAL"]
 
+PROFILE_DIR = os.path.expanduser("~/chrome-scrape-profile")  # 세션/쿠키 재사용
+FAILED_CSV  = pathlib.Path("./failed_rows.csv")
+
 
 # ---- Selenium WebDriver 설정 ----
 def create_driver():
 
-    customService = Service()
-    customOptions = Options()
+    service = Service()
+    options = Options()
+    options.add_argument(f"--user-data-dir={PROFILE_DIR}")
+    options.add_argument("--profile-directory=Default")
+    options.add_argument("--window-size=1400,1000")
 
-    driver = webdriver.Chrome(service=customService, options=customOptions)
+    options.page_load_strategy = "eager"
+    options.add_argument("--blink-settings=imagesEnabled=false")
 
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
+    driver = webdriver.Chrome(service=Service(), options=options)
+    driver.implicitly_wait(5)
+    driver.set_page_load_timeout(25)
+    driver.set_script_timeout(20)
     return driver
 
-# 데이터 전처리
+# 드라이버 헬스체크
+def is_driver_alive(driver):
+    try:
+        driver.execute_script("return 1")
+        return True
+    except (InvalidSessionIdException, WebDriverException):
+        return False
+
 
 # 네이버 로그인 
 def naver_login(driver, list_url):
@@ -114,23 +141,30 @@ def find_scroll_target(driver):
     }
     return null;
     """
-
+     
     return driver.execute_script(js)
 
+def _at_bottom(driver, container):
+    if container:
+        return driver.execute_script(
+            "return Math.ceil(arguments[0].scrollTop + arguments[0].clientHeight) >= arguments[0].scrollHeight - 2;",
+            container)
+    return driver.execute_script(
+        "return Math.ceil(window.scrollY + window.innerHeight) >= document.body.scrollHeight - 2;"
+    )
+
 # 모든 웹툰 아이템 로드 (무한 스크롤 로더))
-def load_all_webtoon_items_by_scroll(driver, item_xpath,
-                             max_rounds=200,        # 스크롤 시도 상한
-                             idle_rounds=5,         # 증가 없는 라운드가 연속 n번이면 종료
-                             wait_per_round=6.0,    # 라운드당 증가 대기 시간
-                             pause_range=(0.35, 0.75)):  # 스크롤 후 짧은 휴지
-    # 창 사이즈 충분히(뷰포트 보여야 IntersectionObserver가 잘 뜸)
+def load_all_webtoon_items_by_scroll(
+        driver, item_xpath,
+        max_rounds=200, idle_rounds=3,
+        wait_per_round=4.0, pause_range=(0.25, 0.5)):
+    """작게-여러번 스크롤 + 증가 폴링. 최하단 도착 시 종료."""
     try:
         driver.set_window_size(1400, 1000)
     except Exception:
         pass
 
-    # 스크롤 컨테이너(있으면) 찾기
-    scroll_container = find_scroll_target(driver)
+    container = _find_scroll_container(driver)
 
     def count_items():
         try:
@@ -139,11 +173,11 @@ def load_all_webtoon_items_by_scroll(driver, item_xpath,
             return 0
 
     prev_count = count_items()
-    prev_height = driver.execute_script("return document.body.scrollHeight")
     stagnant = 0
+    bottom_hits = 0
 
     for _ in range(max_rounds):
-        # 1) 마지막 li가 보이도록 스크롤(IntersectionObserver 트리거)
+        # 마지막 li 가시화 (IntersectionObserver 트리거)
         try:
             items = driver.find_elements(By.XPATH, item_xpath)
             if items:
@@ -151,48 +185,42 @@ def load_all_webtoon_items_by_scroll(driver, item_xpath,
         except StaleElementReferenceException:
             pass
 
-        # 2) 한 라운드에 '조금만' 내려가며 로딩 유도
-        if scroll_container is not None:
-            driver.execute_script("arguments[0].scrollTop = arguments[0].scrollTop + Math.floor(window.innerHeight*0.85);",
-                                  scroll_container)
+        # 한 스텝만 내리기
+        if container:
+            driver.execute_script(
+                "arguments[0].scrollTop = Math.min(arguments[0].scrollTop + Math.floor(window.innerHeight*0.85), arguments[0].scrollHeight);",
+                container)
         else:
             driver.execute_script("window.scrollBy(0, Math.floor(window.innerHeight*0.85));")
 
         time.sleep(random.uniform(*pause_range))
 
-        # 3) 새 아이템이 나타날 때까지 wait_per_round 초 대기
-        start = time.time()
+        # 증가 폴링
         grew = False
+        start = time.time()
         while time.time() - start < wait_per_round:
             cur = count_items()
             if cur > prev_count:
                 prev_count = cur
                 grew = True
                 break
-            time.sleep(0.25)
+            time.sleep(0.2)
 
-        # 4) 높이 변화 체크(가끔 count는 늦게 반영)
-        new_h = driver.execute_script("return document.body.scrollHeight")
-        if new_h > prev_height:
-            prev_height = new_h
-            grew = True
+        # 바닥 감지: 증가 없고 바닥이면 종료(2회 확인)
+        if not grew and _at_bottom(driver, container):
+            bottom_hits += 1
+            if bottom_hits >= 2:
+                break
+        else:
+            bottom_hits = 0
 
         if grew:
             stagnant = 0
-            # 다음 라운드로 계속
             continue
         else:
             stagnant += 1
-            # 그래도 안 늘면 바닥 근처로 한 번 더
-            if scroll_container is not None:
-                driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight;", scroll_container)
-            else:
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(random.uniform(*pause_range))
-
-        # 5) 일정 라운드 동안 증가 없으면 종료
-        if stagnant >= idle_rounds:
-            break
+            if stagnant >= idle_rounds:
+                break
 
     return prev_count
 

@@ -21,7 +21,6 @@ from mysql.connector import Error as MySQLError
 # Others
 import time
 import csv
-import json
 import random
 import pathlib
 import getpass
@@ -35,26 +34,28 @@ load_dotenv()
 BASE_URL = 'https://comic.naver.com/webtoon?tab=genre&genre='
 GENRES = ["PURE", "FANTASY", "DAILY", "로판", "HISTORICAL"]
 
-PROFILE_DIR = os.path.expanduser("~/chrome-scrape-profile")  # 세션/쿠키 재사용
+PROFILE_DIR = pathlib.Path(os.path.expanduser("~/chrome-scrape-profile"))  # 세션/쿠키 재사용
 FAILED_CSV  = pathlib.Path("./failed_rows.csv")
+DB_COMMIT_BATCH_SIZE = 25
 
 
 # ---- Selenium WebDriver 설정 ----
 def create_driver():
 
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
     customService = Service()
     customOptions = Options()
 
-    customOptions.add_argument(f"--user-data-dir={PROFILE_DIR}")
-    customOptions.add_argument("--profile-directory=Default")
     customOptions.add_argument("--window-size=1400,1000")
     customOptions.add_argument("--lang=ko-KR")
+    customOptions.add_argument(f"--user-data-dir={PROFILE_DIR}")
+    customOptions.add_argument("--profile-directory=Default")
 
     driver = webdriver.Chrome(service=customService, options=customOptions)
 
     driver.implicitly_wait(5)
-    driver.set_page_load_timeout(30)
-    driver.set_script_timeout(25)
+
 
     return driver
 
@@ -153,6 +154,50 @@ def _at_bottom(driver, container):
     return driver.execute_script(
         "return Math.ceil(window.scrollY + window.innerHeight) >= document.body.scrollHeight - 2;"
     )
+
+
+DETAIL_LOCATORS = {
+    "title": [
+        (By.CSS_SELECTOR, "#content h2"),
+        (By.XPATH, "//div[@id='content']//h2"),
+        (By.XPATH, "//*[@id='content']/div[1]/div/h2")
+    ],
+    "artist": [
+        (By.CSS_SELECTOR, "#content span[class*='Author'], #content span[class*='author']"),
+        (By.XPATH, "//div[@id='content']//span[contains(@class,'Author')]"),
+        (By.XPATH, "//*[@id='content']/div[1]/div/div[1]/span")
+    ],
+    "description": [
+        (By.CSS_SELECTOR, "#content p"),
+        (By.XPATH, "//div[@id='content']//p"),
+        (By.XPATH, "//*[@id='content']/div[1]/div/div[2]/p")
+    ],
+    "genre": [
+        (By.CSS_SELECTOR, "#content a[href*='genre'], #content a[class*='Tag'], #content a[class*='Genre']"),
+        (By.XPATH, "//div[@id='content']//a[contains(@class,'Tag') or contains(@class,'genre')]"),
+        (By.XPATH, "//*[@id='content']/div[1]/div/div[2]/div/div/a[1]")
+    ],
+    "age": [
+        (By.CSS_SELECTOR, "#content em"),
+        (By.XPATH, "//div[@id='content']//em[contains(text(),'세') or contains(text(),'전체')]"),
+        (By.XPATH, "//*[@id='content']/div[1]/div/div[1]/em")
+    ]
+}
+
+
+def extract_text_with_fallback(driver, locators, timeout=10):
+    last_error = None
+    for locator in locators:
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.visibility_of_element_located(locator)
+            )
+            text = element.text.strip()
+            if text:
+                return text
+        except (TimeoutException, NoSuchElementException) as exc:
+            last_error = exc
+    raise last_error or NoSuchElementException("요소를 찾을 수 없습니다.")
 
 # 모든 웹툰 아이템 로드 (무한 스크롤 로더))
 def load_all_webtoon_items_by_scroll(
@@ -284,7 +329,7 @@ def get_thumbnail_url(driver):
         pass
 
 
-   # 3) 기타 이미지 백업
+    # 3) 기타 이미지 백업
     xpaths = [
         "//*[@id='content']//div[contains(@class,'Poster__thumbnail_area')]//img",
         "//*[@id='content']//img"
@@ -304,17 +349,16 @@ def crawl_webtoon_details(driver, url):
         driver.get(url)
 
         WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.XPATH, '//*[@id="content"]/div[1]/div/h2'))
+            EC.visibility_of_element_located((By.ID, "content"))
         )
-        
-        works_name = driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/h2').text
-        artist_name = driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span').text
-        description = driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p').text
-        
-        genre = driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text
-        
-        age_raw = driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em')
-        age_classification = age_raw.text.strip().split('∙')[-1].strip() 
+
+        works_name = extract_text_with_fallback(driver, DETAIL_LOCATORS["title"])
+        artist_name = extract_text_with_fallback(driver, DETAIL_LOCATORS["artist"])
+        description = extract_text_with_fallback(driver, DETAIL_LOCATORS["description"]).replace("\n", " ").strip()
+        genre = extract_text_with_fallback(driver, DETAIL_LOCATORS["genre"]).lstrip('#').strip()
+
+        age_raw = extract_text_with_fallback(driver, DETAIL_LOCATORS["age"])
+        age_classification = age_raw.strip().split('∙')[-1].strip()
         
         thumbnail_url = get_thumbnail_url(driver)
         
@@ -343,6 +387,10 @@ def connect_database(cfg):
             host=cfg['host'], user=cfg['user'], password=cfg['password'],
             database=cfg['database'], charset='utf8mb4'
         )
+        try:
+            conn.autocommit = False
+        except AttributeError:
+            pass
         print("✅ 데이터베이스 연결 성공")
         return conn
     except MySQLError as e:
@@ -375,8 +423,23 @@ def normalize_age(age_text: str) -> str:
     if t in ('18세이용가','19세이상','19','청불','성인'): return '18세 이용가'
     return '전체연령가'
 
+GENRE_EN_TO_KO = {
+    "PURE": "로맨스",
+    "ROMANCE": "로맨스",
+    "FANTASY": "판타지",
+    "DAILY": "일상",
+    "SLICEOFLIFE": "일상",
+    "HISTORICAL": "사극",
+    "HISTORY": "사극",
+    "ACTION": "무협",
+    "MARTIALARTS": "무협",
+}
+
 def normalize_genre_for_enum(g: str) -> str:
     s = (g or "").strip().lstrip('#')
+    english_key = s.replace(" ", "").upper()
+    if english_key in GENRE_EN_TO_KO:
+        s = GENRE_EN_TO_KO[english_key]
     for v in ['무협 / 사극','무협·사극','무협∙사극','무협ㆍ사극','무협／사극','무협,사극']:
         s = s.replace(v, '무협/사극')
     allowed = {'로맨스','판타지','일상','로판','무협','사극','무협/사극'}
@@ -395,33 +458,85 @@ ON DUPLICATE KEY UPDATE
   `type` = VALUES(`type`)
 """
 
-def save_one_row(connection, cursor, data):
-    # 전처리
-    db_genre = normalize_genre_for_enum(data.get('genre'))
-    db_age   = normalize_age(data.get('age_classification'))
-    vals = (
-        data.get('platform'), data.get('works_name'), data.get('artist_name'),
-        db_age, data.get('description'), db_genre, data.get('thumbnail_url'), data.get('type')
-    )
-    try:
-        cursor.execute(INSERT_SQL, vals)
-        connection.commit()        # 항목 단위 커밋
-        print(f"✅ [DB] {data.get('works_name')}")
-        return True
-    except Exception as e:
-        print(f"❌ [DB] {data.get('works_name')} -> {e}")
-        backup_row({**data, "genre": db_genre, "age_classification": db_age}, str(e))
-        connection.rollback()
-        return False
+
+class BatchedDBWriter:
+    def __init__(self, connection, cursor, batch_size=DB_COMMIT_BATCH_SIZE):
+        self.connection = connection
+        self.cursor = cursor
+        self.batch_size = max(1, batch_size)
+        self.pending_values = []
+
+    def save(self, data):
+        db_genre = normalize_genre_for_enum(data.get('genre'))
+        db_age = normalize_age(data.get('age_classification'))
+        vals = (
+            data.get('platform'), data.get('works_name'), data.get('artist_name'),
+            db_age, data.get('description'), db_genre, data.get('thumbnail_url'), data.get('type')
+        )
+        normalized_row = {**data, "genre": db_genre, "age_classification": db_age}
+
+        try:
+            self.cursor.execute(INSERT_SQL, vals)
+            self.pending_values.append(vals)
+            if len(self.pending_values) >= self.batch_size:
+                self._commit_pending()
+            print(f"✅ [DB] {data.get('works_name')}")
+            return True
+        except Exception as e:
+            print(f"❌ [DB] {data.get('works_name')} -> {e}")
+            backup_row(normalized_row, str(e))
+            self.connection.rollback()
+            self._reinsert_pending_after_rollback()
+            return False
+
+    def flush(self):
+        self._commit_pending()
+
+    def _commit_pending(self):
+        if not self.pending_values:
+            return
+        try:
+            self.connection.commit()
+            self.pending_values.clear()
+        except Exception as e:
+            print(f"⚠️ [DB] 커밋 실패, 재시도: {e}")
+            self.connection.rollback()
+            self._reinsert_pending_after_rollback()
+
+    def _reinsert_pending_after_rollback(self):
+        if not self.pending_values:
+            return
+        snapshot = list(self.pending_values)
+        self.pending_values.clear()
+        try:
+            self.cursor.executemany(INSERT_SQL, snapshot)
+            self.connection.commit()
+        except Exception as replay_err:
+            print(f"❌ [DB] 배치 재적재 실패: {replay_err}")
+            self.connection.rollback()
+            for vals in snapshot:
+                try:
+                    self.cursor.execute(INSERT_SQL, vals)
+                    self.connection.commit()
+                except Exception as item_err:
+                    print(f"❌ [DB] 단건 재적재 실패: {item_err}")
+                    break
 
 # 장르 단위 처리 (세션 자동 복구 + 주기적 재시작) 
-def process_one(driver, url, connection, cursor):
-    d = crawl_webtoon_details(driver, url)
-    if not d:
-        return False
-    return save_one_row(connection, cursor, d)
+def process_one(driver, url, db_writer):
+    
+    data = crawl_webtoon_details(driver, url)
 
-def crawl_one_genre(driver, connection, cursor, list_url, restart_every=200):
+    if not data:
+        # 재시도 
+        time.sleep(random.uniform(0.7, 1.2))
+        data = crawl_webtoon_details(driver, url)
+        if not data:
+            return False
+
+    return db_writer.save(data)
+
+def crawl_one_genre(driver, db_writer, list_url, restart_every=200):
     print(f"\n--- 장르 시작: {list_url} ---")
     urls = get_webtoon_urls(driver, list_url)
     print(f"  URL {len(urls)}개")
@@ -435,7 +550,7 @@ def crawl_one_genre(driver, connection, cursor, list_url, restart_every=200):
             driver = create_driver()
 
         try:
-            ok = process_one(driver, url, connection, cursor)
+            ok = process_one(driver, url, db_writer)
             if ok: processed += 1
         except (InvalidSessionIdException, WebDriverException) as e:
             print(f"⚠️ 세션 이슈 재시작: {e}")
@@ -444,12 +559,17 @@ def crawl_one_genre(driver, connection, cursor, list_url, restart_every=200):
             driver = create_driver()
             # 같은 URL 한 번 재시도
             try:
-                ok = process_one(driver, url, connection, cursor)
+                ok = process_one(driver, url, db_writer)
                 if ok: processed += 1
             except Exception as e2:
                 print(f"❌ 재시도 실패: {url} -> {e2}")
 
+
+        human_pause(0.8, 1.6)
+
         time.sleep(random.uniform(0.6, 1.2))
+
+    db_writer.flush()
 
     print(f"--- 장르 완료: {list_url} (성공 {processed}/{len(urls)}) ---")
     return processed
@@ -472,6 +592,7 @@ def main():
 
     connection = None
     cursor = None
+    db_writer = None
     driver = None
     
     try:
@@ -482,6 +603,7 @@ def main():
             raise Exception("❌ 데이터베이스 연결 실패")
         
         cursor = connection.cursor()
+        db_writer = BatchedDBWriter(connection, cursor, batch_size=DB_COMMIT_BATCH_SIZE)
 
         # Selenium WebDriver 설정
         driver = create_driver()
@@ -498,10 +620,13 @@ def main():
         print("\n" + "---"*10 + "\n[1] 장르별 수집/저장 시작\n" + "---"*10)
         for genre in GENRES:
             list_url = BASE_URL + genre
-            saved = crawl_one_genre(driver, connection, cursor, list_url, restart_every=200)
+            saved = crawl_one_genre(driver, db_writer, list_url, restart_every=200)
             total_saved += saved
             print(f"✔️ {genre} 장르 저장 완료 (누적 {total_saved})")
             time.sleep(random.uniform(1.0, 2.0))
+
+        if db_writer:
+            db_writer.flush()
 
         print("\n" + "---"*10 + "\n[3] 전체 크롤링 완료!\n" + "---"*10)
         print(f"✅ 총 {total_saved}개의 작품을 저장했습니다.")
@@ -515,6 +640,8 @@ def main():
         if driver:
             driver.quit()
             print("Selenium 드라이버를 종료했습니다.")
+        if db_writer:
+            db_writer.flush()
         if cursor:
             cursor.close()
             print("MySQL 커서를 닫았습니다.")

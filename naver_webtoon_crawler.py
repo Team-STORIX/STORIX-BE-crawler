@@ -224,7 +224,7 @@ def load_all_webtoon_items_by_scroll(
 
     return prev_count
 
-# 세부 크롤링 URL 리스트화 ....?
+# 세부 크롤링 URL 리스트화
 def get_webtoon_urls(driver, list_url):
     print(f"작품 리스트 페이지로 이동합니다: {list_url}")
     driver.get(list_url)
@@ -256,7 +256,8 @@ def get_webtoon_urls(driver, list_url):
 
 # 썸네일 이미지 정보 추출
 def get_thumbnail_url(driver):
-    # 0) 가장 안정: og:image 메타 먼저
+
+    # 1) og:image (가장 안정)
     try:
         og = driver.find_element(By.CSS_SELECTOR, "meta[property='og:image']")
         content = og.get_attribute("content")
@@ -265,7 +266,7 @@ def get_thumbnail_url(driver):
     except NoSuchElementException:
         pass
 
-    # 1) 버튼/썸네일 영역 내부 img 
+    # 2) Poster 구조
     try:
         thumb_img = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((
@@ -281,24 +282,19 @@ def get_thumbnail_url(driver):
     except TimeoutException:
         pass
 
-    # 2) 혹시 클래스명이 더 변하면: 썸네일 영역 안의 아무 img
-    try:
-        any_img = driver.find_element(
-            By.XPATH,
-            "//*[@id='content']//div[contains(@class,'Poster__thumbnail_area')]//img"
-        )
-        src = any_img.get_attribute("src")
-        if src:
-            return src
-    except NoSuchElementException:
-        pass
 
-    # 3) 마지막 백업: content 아래 첫 번째 이미지
-    try:
-        fallback = driver.find_element(By.XPATH, "//*[@id='content']//img")
-        return fallback.get_attribute("src")
-    except NoSuchElementException:
-        return None
+   # 3) 기타 이미지 백업
+    xpaths = [
+        "//*[@id='content']//div[contains(@class,'Poster__thumbnail_area')]//img",
+        "//*[@id='content']//img"
+    ]
+    for xp in xpaths:
+        for el in driver.find_elements(By.XPATH, xp):
+            src = el.get_attribute("src") or el.get_attribute("data-src")
+            if src and ('image-comic' in src or 'webtoon' in src or src.endswith(('.jpg','.jpeg','.png','.webp'))):
+                return src
+    return None
+
 
 # 세부 페이지 정보 크롤링
 def crawl_webtoon_details(driver, url):

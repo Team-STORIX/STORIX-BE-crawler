@@ -335,29 +335,20 @@ def crawl_webtoon_details(driver, url):
         print(f"❌ [오류] {url} 스크래핑 중 문제 발생: {e}")
         return None
 
-
-# 데이터베이스 연동
-def connect_database(config):
-
+# DB 연결 & 저장 (멱등 + 항목 단위 커밋 + 실패 백업)
+def connect_database(cfg):
     try:
-
-        connection = mysql.connector.connect(
-            host=config['host'],
-            user=config['user'],
-            password=config['password'], 
-            database=config['database'], 
-            charset='utf8mb4'
+        conn = mysql.connector.connect(
+            host=cfg['host'], user=cfg['user'], password=cfg['password'],
+            database=cfg['database'], charset='utf8mb4'
         )
         print("✅ 데이터베이스 연결 성공")
-        return connection
-    
+        return conn
     except MySQLError as e:
         print(f"❌ 데이터베이스 연결 실패: {e}")
         return None
 
-# 실패 시 백업 로직
 def ensure_failed_csv_header():
-    
     if not FAILED_CSV.exists():
         with open(FAILED_CSV, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
@@ -366,10 +357,8 @@ def ensure_failed_csv_header():
             ])
 
 def backup_row(row, err_msg):
-    
     ensure_failed_csv_header()
     with open(FAILED_CSV, "a", newline="", encoding="utf-8") as f:
-       
         csv.writer(f).writerow([
             row.get("platform"), row.get("works_name"), row.get("artist_name"),
             row.get("age_classification"), row.get("description"),
@@ -377,63 +366,60 @@ def backup_row(row, err_msg):
             row.get("source_url"), err_msg
         ])
 
-# 데이터베이스에 데이터 저장
-def save_to_database(connection, cursor, data):
+def normalize_age(age_text: str) -> str:
+    t = (age_text or "").replace(" ", "").strip()
+    if t in ('전체연령가','전체이용가','전체'): return '전체연령가'
+    if t in ('12세이용가','12'):               return '12세 이용가'
+    if t in ('15세이용가','15'):               return '15세 이용가'
+    if t in ('18세이용가','19세이상','19','청불','성인'): return '18세 이용가'
+    return '전체연령가'
 
+def normalize_genre_for_enum(g: str) -> str:
+    s = (g or "").strip().lstrip('#')
+    for v in ['무협 / 사극','무협·사극','무협∙사극','무협ㆍ사극','무협／사극','무협,사극']:
+        s = s.replace(v, '무협/사극')
+    allowed = {'로맨스','판타지','일상','로판','무협','사극','무협/사극'}
+    return s if s in allowed else '일상'
+
+INSERT_SQL = """
+INSERT INTO works
+(platform, works_name, artist_name, age_classification, description, genre, thumbnail_url, `type`)
+VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+ON DUPLICATE KEY UPDATE
+  artist_name = VALUES(artist_name),
+  age_classification = VALUES(age_classification),
+  description = VALUES(description),
+  genre = VALUES(genre),
+  thumbnail_url = VALUES(thumbnail_url),
+  `type` = VALUES(`type`)
+"""
+
+def save_one_row(connection, cursor, data):
+    # 전처리
+    db_genre = normalize_genre_for_enum(data.get('genre'))
+    db_age   = normalize_age(data.get('age_classification'))
+    vals = (
+        data.get('platform'), data.get('works_name'), data.get('artist_name'),
+        db_age, data.get('description'), db_genre, data.get('thumbnail_url'), data.get('type')
+    )
     try:
-        # 데이터 전처리
-        db_genre = data['genre'].lstrip('#').strip()
-        db_age_classification = data['age_classification'].replace(' ', '').strip()
-        
-        if db_age_classification in ['전체이용가', '전체연령가', '전체']:
-            db_age_classification = '전체연령가'
-        elif db_age_classification in ['12세이용가', '12']:
-            db_age_classification = '12세 이용가'
-        elif db_age_classification in ['15세이용가', '15']:
-            db_age_classification = '15세 이용가'
-        elif db_age_classification in ['18세이용가', '19세이상', '19']:
-            db_age_classification = '18세 이용가'
-        else:
-            db_age_classification = '전체연령가'
-
-        # 데이터 삽입 쿼리
-        insert_query = """
-        INSERT INTO works 
-        (platform, works_name, artist_name, age_classification, 
-         description, genre, thumbnail_url, `type`)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        insert_values = (
-            data['platform'], data['works_name'], data['artist_name'],
-            db_age_classification, data['description'], db_genre,
-            data['thumbnail_url'], data['type']
-        )
-        
-        
-        cursor.execute(insert_query, insert_values)
-        connection.commit()
-
-        print(f"✅ [DB 저장 성공] {data['works_name']}] - {data['artist_name']}")
+        cursor.execute(INSERT_SQL, vals)
+        connection.commit()        # 항목 단위 커밋
+        print(f"✅ [DB] {data.get('works_name')}")
         return True
-    
-    except MySQLError as e:
-        error_code = e.errno
-
-        if error_code == 1062: # 중복
-            print(f"❌ [중복] 이미 존재하는 작품입니다: {data['works_name']}")
-        elif error_code == 1265: # ENUM 불일치
-            print(f"❌ [DB 오류] ENUM 값 불일치 (genre='{db_genre}', age='{db_age_classification}')")
-        else:
-            print(f"❌ [DB 오류] {data['works_name']} 저장 실패: {e}")
-
-        backup_row({**data, "genre": db_genre, "age_classification": db_age_classification}, str(e))
-        connection.rollback()
-        return False
-    
     except Exception as e:
-        print(f"❌ [Python 오류] DB 처리 중 예외 발생: {e}")
+        print(f"❌ [DB] {data.get('works_name')} -> {e}")
+        backup_row({**data, "genre": db_genre, "age_classification": db_age}, str(e))
         connection.rollback()
         return False
+    
+def process_one(driver, url, connection, cursor):
+    d = crawl_webtoon_details(driver, url)
+    if not d:
+        return False
+    return save_one_row(connection, cursor, d)
+
+
 
 # 메인 실행 로직
 def main():

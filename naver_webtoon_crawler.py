@@ -412,13 +412,46 @@ def save_one_row(connection, cursor, data):
         backup_row({**data, "genre": db_genre, "age_classification": db_age}, str(e))
         connection.rollback()
         return False
-    
+
+# 장르 단위 처리 (세션 자동 복구 + 주기적 재시작) 
 def process_one(driver, url, connection, cursor):
     d = crawl_webtoon_details(driver, url)
     if not d:
         return False
     return save_one_row(connection, cursor, d)
 
+def crawl_one_genre(driver, connection, cursor, list_url, restart_every=200):
+    print(f"\n--- 장르 시작: {list_url} ---")
+    urls = get_webtoon_urls(driver, list_url)
+    print(f"  URL {len(urls)}개")
+
+    processed = 0
+    for idx, url in enumerate(urls, 1):
+        # 세션 죽었거나 주기 도달 시 재시작
+        if (idx % restart_every == 0) or (not is_driver_alive(driver)):
+            try: driver.quit()
+            except: pass
+            driver = create_driver()
+
+        try:
+            ok = process_one(driver, url, connection, cursor)
+            if ok: processed += 1
+        except (InvalidSessionIdException, WebDriverException) as e:
+            print(f"⚠️ 세션 이슈 재시작: {e}")
+            try: driver.quit()
+            except: pass
+            driver = create_driver()
+            # 같은 URL 한 번 재시도
+            try:
+                ok = process_one(driver, url, connection, cursor)
+                if ok: processed += 1
+            except Exception as e2:
+                print(f"❌ 재시도 실패: {url} -> {e2}")
+
+        time.sleep(random.uniform(0.6, 1.2))
+
+    print(f"--- 장르 완료: {list_url} (성공 {processed}/{len(urls)}) ---")
+    return processed
 
 
 # 메인 실행 로직

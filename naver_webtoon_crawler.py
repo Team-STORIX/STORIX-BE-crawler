@@ -66,6 +66,9 @@ def is_driver_alive(driver):
     except (InvalidSessionIdException, WebDriverException):
         return False
 
+# 자동화 탐지 회피용
+def human_pause(min_s=0.8, max_s=1.6):
+    time.sleep(random.uniform(min_s, max_s))
 
 # 네이버 로그인 
 def naver_login(driver, list_url):

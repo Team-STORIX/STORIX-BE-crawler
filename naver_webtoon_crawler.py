@@ -42,22 +42,20 @@ FAILED_CSV  = pathlib.Path("./failed_rows.csv")
 # ---- Selenium WebDriver 설정 ----
 def create_driver():
 
-    service = Service()
-    options = Options()
-    options.add_argument(f"--user-data-dir={PROFILE_DIR}")
-    options.add_argument("--profile-directory=Default")
-    options.add_argument("--window-size=1400,1000")
+    customService = Service()
+    customOptions = Options()
 
-    options.page_load_strategy = "eager"
-    options.add_argument("--blink-settings=imagesEnabled=false")
+    customOptions.add_argument(f"--user-data-dir={PROFILE_DIR}")
+    customOptions.add_argument("--profile-directory=Default")
+    customOptions.add_argument("--window-size=1400,1000")
+    customOptions.add_argument("--lang=ko-KR")
 
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    driver = webdriver.Chrome(service=customService, options=customOptions)
 
-    driver = webdriver.Chrome(service=Service(), options=options)
     driver.implicitly_wait(5)
-    driver.set_page_load_timeout(25)
-    driver.set_script_timeout(20)
+    driver.set_page_load_timeout(30)
+    driver.set_script_timeout(25)
+
     return driver
 
 # 드라이버 헬스체크
@@ -164,7 +162,7 @@ def load_all_webtoon_items_by_scroll(
     except Exception:
         pass
 
-    container = _find_scroll_container(driver)
+    container = find_scroll_target(driver)
 
     def count_items():
         try:

@@ -66,8 +66,13 @@ def save_one_row(connection, cursor, data):
     try:
         cursor.execute(INSERT_SQL, vals)
         connection.commit()
-        print(f"✅ [DB 저장] {data.get('works_name')}")
-        return True
+        
+        if cursor.rowcount == 1:
+            print(f"  ✅ [신규] {data.get('works_name')}")
+        elif cursor.rowcount == 2:
+            print(f"  🔄 [중복통합] {data.get('works_name')} (이미 저장됨)")
+        else:
+            print(f"  ➖ [변경없음] {data.get('works_name')}")
     
     except Exception as e:
         print(f"❌ [DB 에러] {data.get('works_name')} -> {e}")

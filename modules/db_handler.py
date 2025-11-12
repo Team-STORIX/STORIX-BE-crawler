@@ -4,6 +4,19 @@ import csv
 import os
 from config import FAILED_CSV
 
+# 장르 우선순위
+GENRE_PRIORITY = {
+    '로판': 5,
+    '무협/사극': 1,
+    '판타지': 1,
+    '액션': 1,
+    '드라마': 1,
+    '로맨스': 1,
+    '일상': 1,
+    '개그': 1,
+    '스릴러': 1,
+}
+
 def connect_database(config):
     
     try:
@@ -18,49 +31,107 @@ def connect_database(config):
 
     return None
 
-def normalize_age(age_text: str) -> str:
+def parse_artists(artist_name_raw):
 
-    t = (age_text or "").replace(" ", "").strip()
+    if not artist_name_raw:
+        return None, None, None
 
-    if t in ('전체연령가', '전체이용가', '전체'): return '전체연령가'
-    if '12' in t: return '12세 이용가'
-    if '15' in t: return '15세 이용가'
-    if any(x in t for x in ['18', '19', '청불', '성인']): return '18세 이용가'
+    # 정규화
+    text = artist_name_raw.replace('∙', ' ').replace('글/그림', '글 그림').replace(':', ' ')
+    parts = [p.strip() for p in text.split('/')]
 
-    return '전체연령가'
+    for part in parts:
+        part = part.strip()
+        if not part: continue
+
+        has_author = '글' in part or '각색' in part
+        has_illustrator = '그림' in part
+        has_original = '원작' in part
+        
+        # 이름만 추출
+        name = part.replace('원작', '').replace('글', '').replace('각색', '').replace('그림', '').strip()
+
+        if not name:
+            continue
+            
+        if not has_author and not has_illustrator and not has_original:
+            if not author: author = name
+            if not illustrator: illustrator = name
+        
+        if has_author: author = name
+        if has_illustrator: illustrator = name
+        if has_original: original_author = name
+
+    return author, illustrator, original_author
 
 
-def backup_failed_row(row, err_msg):
-   
-    file_exists = os.path.isfile(FAILED_CSV)
-    with open(FAILED_CSV, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["platform", "works_name", "error_msg", "data_dump"])
-        writer.writerow([row.get('platform'), row.get('works_name'), err_msg, str(row)])
+def normalize_data(data):
 
-def save_one_row(connection, cursor, data):
+    # 장르 
+    genre = data.get('genre', '').strip().lstrip('#')
+    genre = genre.replace('무협 / 사극', '무협/사극')
+    
+    # 연령
+    age_raw = data.get('age_classification', '').replace(' ', '')
+    if any(x in age_raw for x in ['18', '19', '청불']): age = '18세 이용가'
+    elif '15' in age_raw: age = '15세 이용가'
+    elif '12' in age_raw: age = '12세 이용가'
+    else: age = '전체연령가'
+
+    # 작가
+    author, illustrator, original_author = parse_artists(data.get('artist_name', ''))
+
+    return {
+        **data,
+        'genre': genre,
+        'age_classification': age,
+        'author': author,
+        'illustrator': illustrator,
+        'original_author': original_author,
+        'priority': GENRE_PRIORITY.get(genre, 0)
+    }
+
+
+def save_one_row(connection, cursor, raw_data):
+    
+    data = normalize_data(raw_data)
     
     INSERT_SQL = """
     INSERT INTO works
-    (platform, works_name, artist_name, age_classification, description, genre, thumbnail_url, `type`)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    (platform, works_name, artist_name, author, illustrator, original_author, 
+     age_classification, description, genre, thumbnail_url, `type`)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
-      artist_name = VALUES(artist_name),
-      age_classification = VALUES(age_classification),
-      description = VALUES(description),
-      genre = VALUES(genre),
-      thumbnail_url = VALUES(thumbnail_url),
-      `type` = VALUES(`type`)
+        artist_name = VALUES(artist_name),
+        author = VALUES(author),
+        illustrator = VALUES(illustrator),
+        original_author = VALUES(original_author),
+        age_classification = VALUES(age_classification),
+        description = VALUES(description),
+        thumbnail_url = VALUES(thumbnail_url),
+        `type` = VALUES(`type`),
+        genre = CASE 
+            WHEN %s >= (
+                SELECT CASE genre
+                    WHEN '로판' THEN 10
+                    WHEN '판타지' THEN 1
+                    WHEN '무협/사극' THEN 1
+                    WHEN '로맨스' THEN 1
+                    WHEN '일상' THEN 1
+                    WHEN '개그' THEN 1
+                    WHEN '스릴러' THEN 1
+                    ELSE 0
+                END
+            ) THEN VALUES(genre)
+            ELSE genre
+        END
     """
-    
-
-    db_age = normalize_age(data.get('age_classification'))
-    db_genre = data.get('genre').strip().lstrip('#')
-
     vals = (
-        data.get('platform'), data.get('works_name'), data.get('artist_name'),
-        db_age, data.get('description'), db_genre, data.get('thumbnail_url'), data.get('type')
+        data['platform'], data['works_name'], data['artist_name'],
+        data['author'], data['illustrator'], data['original_author'],
+        data['age_classification'], data['description'], data['genre'],
+        data['thumbnail_url'], data['type'],
+        data['priority']
     )
 
     try:
@@ -68,14 +139,24 @@ def save_one_row(connection, cursor, data):
         connection.commit()
         
         if cursor.rowcount == 1:
-            print(f"  ✅ [신규] {data.get('works_name')}")
+            print(f"  ✅ [신규] {data['works_name']}")
         elif cursor.rowcount == 2:
-            print(f"  🔄 [중복통합] {data.get('works_name')} (이미 저장됨)")
+            print(f"  🔄 [업데이트] {data['works_name']}")
         else:
-            print(f"  ➖ [변경없음] {data.get('works_name')}")
+            print(f"  ➖ [변경없음] {data['works_name']}")
+        return True
     
     except Exception as e:
         print(f"❌ [DB 에러] {data.get('works_name')} -> {e}")
         connection.rollback()
         backup_failed_row(data, str(e))
         return False
+    
+
+def backup_failed_row(data, err_msg):
+    file_exists = os.path.isfile(FAILED_CSV)
+    with open(FAILED_CSV, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["works_name", "error", "data_dump"])
+        writer.writerow([data.get('works_name'), err_msg, str(data)])

@@ -145,10 +145,9 @@ class WebtoonCrawler:
 
             wait = WebDriverWait(self.driver, 10)
             
-            # 1. 제목 추출
+            # 제목 추출 및 전처리
             title_raw = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="content"]/div[1]/div/h2'))).text
-            # [수정] '휴재' 텍스트 제거 및 공백 정리
-            title = title_raw.replace("휴재", "").strip()
+            title = title_raw.replace("휴재", "").replace(" [독점]", "").strip()
 
             artist = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span').text
             desc = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p').text

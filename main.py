@@ -1,6 +1,6 @@
 import time
 import random
-from config import MYSQL_CONFIG, GENRES, BASE_URL
+from config import MYSQL_CONFIG, GENRES, BASE_URL, GENRE_MAP
 from modules.db_handler import connect_database, save_one_row
 from modules.crawler import WebtoonCrawler
 
@@ -18,21 +18,30 @@ def main():
         if not crawler.login():
             raise Exception("로그인 실패로 프로그램을 종료합니다.")
 
+        print("\n🚀 크롤링을 시작합니다...")
+        total_saved = 0
+
         # 3. 장르별 순회
-        for genre in GENRES:
-            genre_url = BASE_URL + genre
-            print(f"\n=== [장르 시작: {genre}] ===")
+        for genre_code in GENRES:
+            target_genre_ko = GENRE_MAP.get(genre_code, genre_code)
+            print(f"\n=== [장르 수집 시작: {genre_code} ({target_genre_ko})] ===")
             
-            target_urls = crawler.get_genre_urls(genre_url)
-            
-            for i, url in enumerate(target_urls, 1):
-                print(f"[{i}/{len(target_urls)}] 처리 중...", end="\r")
+            urls = crawler.get_genre_urls(BASE_URL + genre_code)
+            print(f"📊 수집 대상: 총 {len(urls)}개 작품")
+
+            for i, url in enumerate(urls, 1):
+                print(f"[{i}/{len(urls)}] 진행 중...", end='\r')
                 
-                # 상세 페이지 크롤링
                 data = crawler.crawl_detail(url)
                 if data:
-                    # DB 저장
-                    save_one_row(conn, cursor, data)
+                    # [핵심 수정] '로판' 장르 수집 시에만 강제로 장르명 고정
+                    # 다른 장르는 상세 페이지에 적힌 원래 장르를 그대로 사용
+                    if genre_code == '로판':
+                        data['genre'] = '로판'
+                    
+                    if save_one_row(conn, cursor, data):
+                        total_saved += 1
+                        #print(f"✅ [저장완료] {data['works_name']}" + " "*20)
                 
                 # 봇 탐지 회피를 위한 랜덤 대기
                 crawler.human_pause(1.0, 2.5)

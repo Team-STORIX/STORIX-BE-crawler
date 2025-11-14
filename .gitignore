@@ -1,1 +1,6 @@
 .env
+*.pyc
+*.pkl
+*.png
+*/csv
+*/__pycache__/

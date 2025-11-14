@@ -33,12 +33,16 @@ def connect_database(config):
 
 def parse_artists(artist_name_raw):
 
+    author, illustrator, original_author = None, None, None
+    
     if not artist_name_raw:
         return None, None, None
 
     # 정규화
-    text = artist_name_raw.replace('∙', ' ').replace('글/그림', '글 그림').replace(':', ' ')
-    parts = [p.strip() for p in text.split('/')]
+    text = artist_name_raw.replace('∙', ' ').replace(':', ' ')
+    text = text.replace('글/그림', '글 그림').replace('글/원작', '글 원작')
+
+    parts = [p.strip() for p in text.split('/') if p.strip()]
 
     for part in parts:
         part = part.strip()
@@ -53,14 +57,19 @@ def parse_artists(artist_name_raw):
 
         if not name:
             continue
-            
+
         if not has_author and not has_illustrator and not has_original:
-            if not author: author = name
-            if not illustrator: illustrator = name
+            if not author:
+                author = name
+            elif not illustrator:
+                illustrator = name
         
         if has_author: author = name
         if has_illustrator: illustrator = name
         if has_original: original_author = name
+
+    if len(parts) == 1 and author and not illustrator and not original_author:
+        illustrator = author
 
     return author, illustrator, original_author
 
@@ -81,6 +90,10 @@ def normalize_data(data):
     # 작가
     author, illustrator, original_author = parse_artists(data.get('artist_name', ''))
 
+    # 해시태그
+    hashtag_list = data.get('hashtags', [])
+    hashtag_string = ",".join(tag for tag in hashtag_list if tag)
+
     return {
         **data,
         'genre': genre,
@@ -88,7 +101,8 @@ def normalize_data(data):
         'author': author,
         'illustrator': illustrator,
         'original_author': original_author,
-        'priority': GENRE_PRIORITY.get(genre, 0)
+        'priority': GENRE_PRIORITY.get(genre, 0),
+        'hashtag_string': hashtag_string
     }
 
 
@@ -99,14 +113,15 @@ def save_one_row(connection, cursor, raw_data):
     INSERT_SQL = """
     INSERT INTO works
     (platform, works_name, artist_name, author, illustrator, original_author, 
-     age_classification, description, genre, thumbnail_url, `type`)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+     age_classification, description, genre, hashtag, thumbnail_url, `type`)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
         artist_name = VALUES(artist_name),
         author = VALUES(author),
         illustrator = VALUES(illustrator),
         original_author = VALUES(original_author),
         age_classification = VALUES(age_classification),
+        hashtag = VALUES(hashtag),
         description = VALUES(description),
         thumbnail_url = VALUES(thumbnail_url),
         `type` = VALUES(`type`),
@@ -130,6 +145,7 @@ def save_one_row(connection, cursor, raw_data):
         data['platform'], data['works_name'], data['artist_name'],
         data['author'], data['illustrator'], data['original_author'],
         data['age_classification'], data['description'], data['genre'],
+        data['hashtag_string'],
         data['thumbnail_url'], data['type'],
         data['priority']
     )

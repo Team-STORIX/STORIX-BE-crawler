@@ -34,17 +34,15 @@ def main():
                 
                 data = crawler.crawl_detail(url)
                 if data:
-                    # [핵심 수정] '로판' 장르 수집 시에만 강제로 장르명 고정
-                    # 다른 장르는 상세 페이지에 적힌 원래 장르를 그대로 사용
+                    # '로판' 장르 수집 시에만 강제로 장르명 고정
                     if genre_code == '로판':
                         data['genre'] = '로판'
                     
                     if save_one_row(conn, cursor, data):
                         total_saved += 1
-                        #print(f"✅ [저장완료] {data['works_name']}" + " "*20)
                 
                 # 봇 탐지 회피를 위한 랜덤 대기
-                crawler.human_pause(1.0, 2.5)
+                crawler.human_pause(1.5, 3.5)
 
     except KeyboardInterrupt:
         print("\n🛑 사용자에 의해 중단되었습니다.")

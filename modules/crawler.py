@@ -154,12 +154,33 @@ class WebtoonCrawler:
             genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text
             age = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em').text.strip().split('∙')[-1].strip()
             
+            hashtags = []
+            try:
+                all_tags = self.driver.find_elements(By.XPATH, "//*[@id='content']/div[1]/div/div[2]/div/div/a")
+                
+                # 첫 번째(장르)를 제외한 나머지
+                if len(all_tags) > 1:
+                    hashtags = [tag.text.strip().lstrip('#') for tag in all_tags[1:]]
+            except NoSuchElementException:
+                pass 
+
+
             thumb = ""
             try: thumb = self.driver.find_element(By.CSS_SELECTOR, "meta[property='og:image']").get_attribute("content")
             except: pass
 
-            return {"platform": "네이버 웹툰", "works_name": title, "artist_name": artist, 
-                    "age_classification": age, "description": desc, "genre": genre, 
-                    "thumbnail_url": thumb, "type": "웹툰"}
+            return {
+                "platform": "네이버 웹툰", 
+                "works_name": title, 
+                "artist_name": artist,
+                "age_classification": age, 
+                "description": desc, 
+                "genre": genre,
+                "hashtags": hashtags, 
+                "thumbnail_url": thumb, 
+                "type": "웹툰", 
+                "source_url": url
+            }
+        
         except Exception:
             return None

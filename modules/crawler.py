@@ -2,14 +2,14 @@ import time
 import random
 import pickle
 import os
-# 표준 Selenium
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from config import COOKIE_FILE
@@ -24,7 +24,7 @@ class WebtoonCrawler:
         options = Options()
         options.add_argument("--window-size=1600,900")
         options.add_argument("--lang=ko-KR")
-        # 봇 탐지 최소화
+        
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument('--disable-blink-features=AutomationControlled')
@@ -84,7 +84,7 @@ class WebtoonCrawler:
         pickle.dump(self.driver.get_cookies(), open(COOKIE_FILE, "wb"))
         return True
 
-    # === 무한 스크롤 로직 ===
+    # 무한 스크롤 로직
     def _scroll_down(self):
         self.driver.execute_script("window.scrollBy(0, Math.floor(window.innerHeight * 0.85));")
 
@@ -178,7 +178,7 @@ class WebtoonCrawler:
                 "genre": genre,
                 "hashtags": hashtags, 
                 "thumbnail_url": thumb, 
-                "type": "웹툰", 
+                "works_type": "웹툰", 
                 "source_url": url
             }
         

@@ -26,6 +26,6 @@ MYSQL_CONFIG = {
     'host': os.getenv("MYSQL_DATABASE_HOST", "localhost"),
     'user': os.getenv("MYSQL_DATABASE_USER", "root"),
     'password': os.getenv("MYSQL_DATABASE_PASSWORD", ""),
-    'database': os.getenv("MYSQL_DATABASE_NAME", "webtoon_db"),
+    'database': os.getenv("MYSQL_DATABASE_NAME", "storix"),
     'charset': 'utf8mb4',
 }

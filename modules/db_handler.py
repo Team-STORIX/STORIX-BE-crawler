@@ -90,10 +90,6 @@ def normalize_data(data):
     # 작가
     author, illustrator, original_author = parse_artists(data.get('artist_name', ''))
 
-    # 해시태그
-    hashtag_list = data.get('hashtags', [])
-    hashtag_string = ",".join(tag for tag in hashtag_list if tag)
-
     return {
         **data,
         'genre': genre,
@@ -101,34 +97,32 @@ def normalize_data(data):
         'author': author,
         'illustrator': illustrator,
         'original_author': original_author,
-        'priority': GENRE_PRIORITY.get(genre, 0),
-        'hashtag_string': hashtag_string
+        'priority': GENRE_PRIORITY.get(genre, 0)
     }
 
 
 def save_one_row(connection, cursor, raw_data):
-    
+    hashtag_list = raw_data.get('hashtags', [])
     data = normalize_data(raw_data)
     
-    INSERT_SQL = """
+    works_sql = """
     INSERT INTO works
     (platform, works_name, artist_name, author, illustrator, original_author, 
-     age_classification, description, genre, hashtag, thumbnail_url, `type`)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+     age_classification, description, genre, thumbnail_url, works_type)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
         artist_name = VALUES(artist_name),
         author = VALUES(author),
         illustrator = VALUES(illustrator),
-        original_author = VALUES(original_author),
+        original_author = VALUES(original_author), 
         age_classification = VALUES(age_classification),
-        hashtag = VALUES(hashtag),
         description = VALUES(description),
         thumbnail_url = VALUES(thumbnail_url),
-        `type` = VALUES(`type`),
+        works_type = VALUES(works_type), -- works_type 추가 (보내주신 코드에 누락되어 있었음)
         genre = CASE 
             WHEN %s >= (
                 SELECT CASE genre
-                    WHEN '로판' THEN 10
+                    WHEN '로판' THEN 5
                     WHEN '판타지' THEN 1
                     WHEN '무협/사극' THEN 1
                     WHEN '로맨스' THEN 1
@@ -141,17 +135,46 @@ def save_one_row(connection, cursor, raw_data):
             ELSE genre
         END
     """
-    vals = (
+    works_vals = (
         data['platform'], data['works_name'], data['artist_name'],
         data['author'], data['illustrator'], data['original_author'],
         data['age_classification'], data['description'], data['genre'],
-        data['hashtag_string'],
-        data['thumbnail_url'], data['type'],
+        data['thumbnail_url'], data['works_type'],
         data['priority']
     )
 
     try:
-        cursor.execute(INSERT_SQL, vals)
+        # works 테이블 저장 
+        cursor.execute(works_sql, works_vals)
+
+        # 방금 저장한 works의 works_id
+        cursor.execute("SELECT works_id FROM works WHERE works_name = %s", (data['works_name'],))
+        work_id_result = cursor.fetchone()
+        
+        if not work_id_result:
+            raise Exception(f"Failed to retrieve works_id for {data['works_name']}")
+        works_id = work_id_result[0]
+
+        # 해시태그 처리 
+        if hashtag_list:
+            cursor.execute("DELETE FROM works_hashtag WHERE works_id = %s", (works_id,))
+            for tag_name in hashtag_list:
+                if not tag_name: continue
+                
+                cursor.execute("SELECT id FROM hashtag WHERE name = %s", (tag_name,))
+                hashtag_result = cursor.fetchone()
+                
+                if hashtag_result:
+                    hashtag_id = hashtag_result[0]
+                else:
+                    cursor.execute("INSERT INTO hashtag (name) VALUES (%s)", (tag_name,))
+                    hashtag_id = cursor.lastrowid
+                
+                cursor.execute(
+                    "INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) VALUES (%s, %s)",
+                    (works_id, hashtag_id)
+                )
+
         connection.commit()
         
         if cursor.rowcount == 1:

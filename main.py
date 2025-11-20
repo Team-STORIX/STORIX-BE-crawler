@@ -4,6 +4,7 @@ from config import MYSQL_CONFIG, GENRES, BASE_URL, GENRE_MAP
 from modules.db_handler import connect_database, save_one_row
 from modules.crawler import WebtoonCrawler
 
+# 1차 크롤링: 장르별 웹툰
 def main():
     # 1. DB 연결
     conn = connect_database(MYSQL_CONFIG)

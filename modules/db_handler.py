@@ -118,7 +118,7 @@ def save_one_row(connection, cursor, raw_data):
         age_classification = VALUES(age_classification),
         description = VALUES(description),
         thumbnail_url = VALUES(thumbnail_url),
-        works_type = VALUES(works_type), -- works_type 추가 (보내주신 코드에 누락되어 있었음)
+        works_type = VALUES(works_type), 
         genre = CASE 
             WHEN %s >= (
                 SELECT CASE genre
@@ -146,6 +146,10 @@ def save_one_row(connection, cursor, raw_data):
     try:
         # works 테이블 저장 
         cursor.execute(works_sql, works_vals)
+        affected_rows = cursor.rowcount
+
+        while cursor.nextset(): pass
+
 
         # 방금 저장한 works의 works_id
         cursor.execute("SELECT works_id FROM works WHERE works_name = %s", (data['works_name'],))
@@ -155,6 +159,8 @@ def save_one_row(connection, cursor, raw_data):
             raise Exception(f"Failed to retrieve works_id for {data['works_name']}")
         works_id = work_id_result[0]
 
+        while cursor.nextset(): pass
+
         # 해시태그 처리 
         if hashtag_list:
             cursor.execute("DELETE FROM works_hashtag WHERE works_id = %s", (works_id,))
@@ -163,26 +169,32 @@ def save_one_row(connection, cursor, raw_data):
                 
                 cursor.execute("SELECT id FROM hashtag WHERE name = %s", (tag_name,))
                 hashtag_result = cursor.fetchone()
+
+                while cursor.nextset(): pass
                 
                 if hashtag_result:
                     hashtag_id = hashtag_result[0]
                 else:
                     cursor.execute("INSERT INTO hashtag (name) VALUES (%s)", (tag_name,))
+                    while cursor.nextset(): pass
                     hashtag_id = cursor.lastrowid
                 
                 cursor.execute(
                     "INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) VALUES (%s, %s)",
                     (works_id, hashtag_id)
                 )
+                while cursor.nextset(): pass
 
         connection.commit()
         
-        if cursor.rowcount == 1:
-            print(f"  ✅ [신규] {data['works_name']}")
-        elif cursor.rowcount == 2:
-            print(f"  🔄 [업데이트] {data['works_name']}")
+        if affected_rows == 1:
+            log_prefix = "✨ [신규]"
+        elif affected_rows == 2:
+            log_prefix = "🔄 [업데이트]"
         else:
-            print(f"  ➖ [변경없음] {data['works_name']}")
+            log_prefix = "➖ [변경없음]"
+
+        print(f"  {log_prefix} {data['works_name']}")
         return True
     
     except Exception as e:

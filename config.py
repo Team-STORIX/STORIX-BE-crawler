@@ -9,9 +9,14 @@ BASE_DIR = pathlib.Path(__file__).parent
 COOKIE_FILE = BASE_DIR / "naver_cookies.pkl"
 FAILED_CSV = BASE_DIR / "failed_rows.csv"
 
-# 네이버 웹툰 설정
+# ---- 네이버 웹툰 설정 ----
+
+# 1차 크롤링 URL 및 장르 목록
 BASE_URL = 'https://comic.naver.com/webtoon?tab=genre&genre='
 GENRES = ["PURE", "FANTASY", "DAILY", "로판", "HISTORICAL"]
+
+# 2차 크롤링 URL (daily - 인기순)
+DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 
 GENRE_MAP = {
     "PURE": "로맨스",

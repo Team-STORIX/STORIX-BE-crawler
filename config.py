@@ -18,6 +18,11 @@ GENRES = ["PURE", "FANTASY", "DAILY", "로판", "HISTORICAL"]
 # 2차 크롤링 URL (daily - 인기순)
 DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 
+# 2차 크롤링 URL + 수집 개수 제한 (completed - 완결)
+COMPLETED_URL = 'https://comic.naver.com/webtoon?tab=finish'
+
+# ----------------------
+
 GENRE_MAP = {
     "PURE": "로맨스",
     "FANTASY": "판타지",

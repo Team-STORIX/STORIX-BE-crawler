@@ -50,7 +50,6 @@ def main():
                 if data:
                     if save_one_row(conn, cursor, data):
                         total_saved += 1
-                        print(f"✅ [저장완료] {data['works_name']}" + " "*20)
 
             except (InvalidSessionIdException, WebDriverException):
                 print(f"\n⚠️ [오류] 상세 페이지({url}) 수집 중 세션 끊김. 재연결 시도...")

@@ -2,27 +2,25 @@ import time
 import random
 import pickle
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager
 
-from config import COOKIE_FILE
+from .base_crawler import BaseCrawler
 
-class WebtoonCrawler:
+from config import NAVER_COOKIE_FILE
+
+class NaverCrawler(BaseCrawler):
     
     def login(self):
         self.driver.get("https://comic.naver.com/index")
         time.sleep(1)
 
-        if COOKIE_FILE.exists():
+        if NAVER_COOKIE_FILE.exists():
             print(f"🍪 기존 쿠키 파일을 적용합니다.")
             try:
-                cookies = pickle.load(open(COOKIE_FILE, "rb"))
+                cookies = pickle.load(open(NAVER_COOKIE_FILE, "rb"))
                 for c in cookies:
                     if 'expiry' in c: del c['expiry']
                     c['domain'] = '.naver.com'
@@ -53,7 +51,7 @@ class WebtoonCrawler:
         except: pass
 
         print("✅ 확인되었습니다. 현재 로그인 상태를 쿠키로 저장합니다.")
-        pickle.dump(self.driver.get_cookies(), open(COOKIE_FILE, "wb"))
+        pickle.dump(self.driver.get_cookies(), open(NAVER_COOKIE_FILE, "wb"))
         return True
 
     # 무한 스크롤 로직

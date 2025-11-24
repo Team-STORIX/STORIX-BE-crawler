@@ -1,6 +1,5 @@
 import time
 import random
-import pickle
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -35,3 +34,10 @@ class BaseCrawler:
     
     def human_pause(self, min_s=1.0, max_s=2.0):
         time.sleep(random.uniform(min_s, max_s))
+    
+    # 추상 메서드
+    def login(self):
+        raise NotImplementedError
+    
+    def crawl_detail(self, url):
+        raise NotImplementedError

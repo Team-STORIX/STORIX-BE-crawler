@@ -7,7 +7,6 @@ load_dotenv()
 # 디렉토리 및 파일 경로
 BASE_DIR = pathlib.Path(__file__).parent
 NAVER_COOKIE_FILE = BASE_DIR / "naver_cookies.pkl"
-KAKAO_COOKIE_FILE = BASE_DIR / "kakao_cookies.pkl"
 FAILED_CSV = BASE_DIR / "failed_rows.csv"
 
 # ---- 네이버 웹툰 설정 ----
@@ -23,6 +22,10 @@ DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 COMPLETED_URL = 'https://comic.naver.com/webtoon?tab=finish'
 
 # ----------------------
+
+# ---- 카카오 웹툰 설정 ----
+KAKAO_LOGIN_URL = "https://accounts.kakao.com/login/?continue=https%3A%2F%2Fkauth.kakao.com%2Foauth%2Fauthorize%3Fclient_id%3D49bbb48c5fdb0199e5da1b89de359484%26state%3Dhttps%25253A%25252F%25252Fpage.kakao.com%25252Fmenu%25252F10010%25252Fscreen%25252F93%26redirect_uri%3Dhttps%253A%252F%252Fpage.kakao.com%252Frelay%252Flogin%26response_type%3Dcode%26auth_tran_id%3DW3lvNUKSoQz6HLrxqft_Qn0McwWmXpOWQ7Zo.f_58sE5Hx7anOVDmu5vgoIS%26ka%3Dsdk%252F2.1.0%2520os%252Fjavascript%2520sdk_type%252Fjavascript%2520lang%252Fko-KR%2520device%252FMacIntel%2520origin%252Fhttps%25253A%25252F%25252Fpage.kakao.com%26is_popup%3Dfalse%26through_account%3Dtrue&talk_login=hidden#login"
+TOP_300_URL = "https://page.kakao.com/menu/10010/screen/93"
 
 GENRE_MAP = {
     "PURE": "로맨스",

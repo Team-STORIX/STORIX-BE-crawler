@@ -1,56 +1,26 @@
 import time
 import random
 import pickle
-import os
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager
 
-from config import COOKIE_FILE
+from .base_crawler import BaseCrawler
 
-class WebtoonCrawler:
-    def __init__(self):
-        self.driver = None
+from config import NAVER_COOKIE_FILE
 
-    def start_driver(self):
-        if self.driver is not None: return
-        print("🔧 브라우저를 시작합니다...")
-        options = Options()
-        options.add_argument("--window-size=1600,900")
-        options.add_argument("--lang=ko-KR")
-        
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
-
-        self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"""
-        })
-
-    def close_driver(self):
-        if self.driver:
-            self.driver.quit()
-            self.driver = None
-
-    def human_pause(self, min_s=1.0, max_s=2.0):
-        time.sleep(random.uniform(min_s, max_s))
-
+class NaverCrawler(BaseCrawler):
+    
     def login(self):
         self.driver.get("https://comic.naver.com/index")
         time.sleep(1)
 
-        if COOKIE_FILE.exists():
+        if NAVER_COOKIE_FILE.exists():
             print(f"🍪 기존 쿠키 파일을 적용합니다.")
             try:
-                cookies = pickle.load(open(COOKIE_FILE, "rb"))
+                cookies = pickle.load(open(NAVER_COOKIE_FILE, "rb"))
                 for c in cookies:
                     if 'expiry' in c: del c['expiry']
                     c['domain'] = '.naver.com'
@@ -81,7 +51,7 @@ class WebtoonCrawler:
         except: pass
 
         print("✅ 확인되었습니다. 현재 로그인 상태를 쿠키로 저장합니다.")
-        pickle.dump(self.driver.get_cookies(), open(COOKIE_FILE, "wb"))
+        pickle.dump(self.driver.get_cookies(), open(NAVER_COOKIE_FILE, "wb"))
         return True
 
     # 무한 스크롤 로직

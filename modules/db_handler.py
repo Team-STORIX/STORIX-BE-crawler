@@ -82,10 +82,18 @@ def normalize_data(data):
     
     # 연령
     age_raw = data.get('age_classification', '').replace(' ', '')
-    if any(x in age_raw for x in ['18', '19', '청불']): age = '18세 이용가'
-    elif '15' in age_raw: age = '15세 이용가'
-    elif '12' in age_raw: age = '12세 이용가'
-    else: age = '전체연령가'
+    if not age_raw: 
+        age = ""  
+    elif any(x in age_raw for x in ['18', '19', '청불']): 
+        age = '18세 이용가'
+    elif '15' in age_raw: 
+        age = '15세 이용가'
+    elif '12' in age_raw: 
+        age = '12세 이용가'
+    elif '전체' in age_raw: 
+        age = '전체연령가'
+    else: 
+        age = ""
 
     # 작가
     author, illustrator, original_author = parse_artists(data.get('artist_name', ''))

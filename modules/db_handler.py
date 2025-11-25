@@ -83,7 +83,7 @@ def normalize_data(data):
     # 연령
     age_raw = data.get('age_classification', '').replace(' ', '')
     if not age_raw: 
-        age = ""  # 값이 없으면 빈 문자열 유지
+        age = ""  
     elif any(x in age_raw for x in ['18', '19', '청불']): 
         age = '18세 이용가'
     elif '15' in age_raw: 

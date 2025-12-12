@@ -106,6 +106,35 @@ class KakaoCrawler(BaseCrawler):
                 self.driver.get(target_url)
                 time.sleep(2)
 
+
+            # ===== 팝업 닫기 시도 =====
+            try:
+                # 1순위: '확인' 텍스트를 가진 버튼 찾기 (가장 흔한 패턴)
+                confirm_btns = self.driver.find_elements(By.XPATH, "//button[contains(text(), '확인')]")
+                    
+                for btn in confirm_btns:
+                    # 화면에 보이고 클릭 가능한 상태인지 확인
+                    if btn.is_displayed():
+                        print(f"⚠️ [팝업 감지] '확인' 버튼을 클릭합니다. ({url})")
+                        self.driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(1) # 닫히는 시간 대기
+                            
+                # 2순위: 혹시 '확인'이 div나 span으로 되어 있을 경우 대비
+                if not confirm_btns:
+                    # 모달(modal) 클래스 내부의 '확인' 텍스트 요소 찾기
+                    confirm_divs = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'modal')]//*[contains(text(), '확인')]")
+                    for div in confirm_divs:
+                        if div.is_displayed():
+                            self.driver.execute_script("arguments[0].click();", div)
+                            time.sleep(1)
+
+            except Exception as e:
+                    # 팝업 닫기 실패는 치명적이지 않으므로 패스
+                pass
+
+            # [대기]
+            wait = WebDriverWait(self.driver, 30)
+
             title_xpath = '//*[@id="__next"]/div/div[2]/div[1]/div/div[1]/div[1]/div/div[2]/a/div/span[1]'
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, title_xpath)))
@@ -157,10 +186,16 @@ class KakaoCrawler(BaseCrawler):
                             elif "전체" in value: age = "전체연령가"
                             else: age = ""
                         elif label == "분류":
-                            if "소설" in value: works_type = "소설"
-                            elif "웹툰" in value: works_type = "웹툰"
+                            # [핵심 수정] '소설'이 포함되면 무조건 '웹소설'로 저장
+                            if "소설" in value: 
+                                works_type = "웹소설"
+                            elif "웹툰" in value: 
+                                works_type = "웹툰"
+                            
+                            # 장르 추출 ('웹소설', '소설', '웹툰' 글자 제거)
                             clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").strip()
                             if clean_genre: genre = clean_genre
+
                     except: continue
             except: pass
 
